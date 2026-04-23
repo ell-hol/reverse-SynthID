@@ -804,6 +804,139 @@ class RobustSynthIDExtractor:
             }
         )
 
+    # ================================================================
+    # V4 DETECTION — cross-color consensus codebook
+    # ================================================================
+
+    def detect_from_v4_codebook(
+        self,
+        image: np.ndarray,
+        codebook,
+        model: Optional[str] = None,
+        top_k: int = 128,
+        consensus_floor: float = 0.75,
+    ) -> DetectionResult:
+        """Detect a SynthID watermark using a loaded V4 codebook.
+
+        Unlike :py:meth:`detect_array`, this runs at the image's **native
+        resolution** (no 512x512 downsample) and uses the top-``top_k``
+        cross-colour consensus carrier bins of the best-matching
+        ``SpectralCodebookV4`` profile as the phase-match target. This gives a
+        much tighter detector and is the one the manual-validation loop should
+        agree with before you spend Gemini-app time on a batch.
+
+        Returns a :class:`DetectionResult` compatible with the rest of the
+        codebase so it can be plugged into ``SynthIDBypass(extractor=...)``.
+
+        Args:
+            image: RGB uint8 or float HxWx3 array.
+            codebook: A loaded ``SpectralCodebookV4`` instance.
+            model: Optional model hint (e.g. ``nano-banana-pro-preview``).
+            top_k: Number of top-consensus carriers per channel to score.
+            consensus_floor: Ignore bins whose consensus_coherence is below
+                this (prevents noise bins from inflating the score).
+        """
+        if image.dtype != np.uint8:
+            arr = np.asarray(image)
+            if np.max(arr) <= 1.5:
+                arr = arr * 255.0
+            image_u8 = np.clip(arr, 0, 255).astype(np.uint8)
+        else:
+            image_u8 = image
+
+        H, W = image_u8.shape[:2]
+        profile, key, exact = codebook.get_profile(H, W, model=model)
+
+        # FFT at native resolution if exact; otherwise project the profile
+        # down via resize to avoid ringing.
+        if exact:
+            work = image_u8.astype(np.float64)
+            prof_cons = profile.consensus_coherence
+            prof_phase = profile.consensus_phase
+        else:
+            pH, pW = profile.shape
+            work = cv2.resize(image_u8, (pW, pH), interpolation=cv2.INTER_AREA)\
+                .astype(np.float64)
+            prof_cons = profile.consensus_coherence
+            prof_phase = profile.consensus_phase
+
+        per_channel_scores: List[float] = []
+        per_channel_n: List[int] = []
+
+        for ch in range(3):
+            fft_ch = np.fft.fft2(work[:, :, ch])
+            img_phase = np.angle(fft_ch)
+
+            cons_ch = prof_cons[:, :, ch].copy()
+            cons_ch[0, 0] = 0.0
+            mask = (cons_ch >= consensus_floor)
+            if mask.sum() == 0:
+                continue
+
+            # Select top-k bins by consensus coherence.
+            candidates = np.argsort(cons_ch.ravel())[-top_k:]
+            rows, cols = np.unravel_index(candidates, cons_ch.shape)
+
+            matches: List[float] = []
+            for y, x in zip(rows, cols):
+                if cons_ch[y, x] < consensus_floor:
+                    continue
+                ref_p = prof_phase[y, x, ch]
+                diff = np.abs(np.angle(np.exp(1j * (img_phase[y, x] - ref_p))))
+                matches.append(1.0 - diff / np.pi)
+
+            if matches:
+                per_channel_scores.append(float(np.mean(matches)))
+                per_channel_n.append(len(matches))
+
+        if not per_channel_scores:
+            return DetectionResult(
+                is_watermarked=False,
+                confidence=0.0,
+                correlation=0.0,
+                phase_match=0.0,
+                structure_ratio=0.0,
+                carrier_strength=0.0,
+                multi_scale_consistency=0.0,
+                details={'v4': True, 'profile_key': f'{key[0]}/{key[1]}x{key[2]}',
+                         'reason': 'no consensus bins above floor'},
+            )
+
+        # Green channel is the strongest SynthID carrier; weight accordingly.
+        weights = [0.25, 0.55, 0.20][: len(per_channel_scores)]
+        w_sum = sum(weights)
+        phase_match = float(sum(s * w for s, w in zip(per_channel_scores, weights)) / w_sum)
+
+        # V4 consensus carriers average phase over ~6 colours per bin, so
+        # watermarked phase_match sits near 0.60-0.75 (vs ~0.95 for the v3
+        # single-colour detector). Non-watermarked / cleaned images drop to
+        # ~0.30-0.45. Sigmoid is centred at 0.52 with moderate steepness so
+        # the usable gap covers the full [0, 1] confidence range.
+        phase_score = float(1.0 / (1.0 + np.exp(-18.0 * (phase_match - 0.52))))
+        confidence = float(min(1.0, phase_score))
+        is_watermarked = confidence > 0.50
+
+        return DetectionResult(
+            is_watermarked=bool(is_watermarked),
+            confidence=confidence,
+            correlation=0.0,
+            phase_match=phase_match,
+            structure_ratio=0.0,
+            carrier_strength=0.0,
+            multi_scale_consistency=float(
+                np.std(per_channel_scores) if len(per_channel_scores) > 1 else 0.0,
+            ),
+            details={
+                'v4': True,
+                'profile_key': f'{key[0]}/{key[1]}x{key[2]}',
+                'exact_match': bool(exact),
+                'per_channel_scores': per_channel_scores,
+                'per_channel_n': per_channel_n,
+                'top_k': top_k,
+                'consensus_floor': consensus_floor,
+            },
+        )
+
 
 # ================================================================
 # CLI INTERFACE
