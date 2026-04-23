@@ -25,12 +25,16 @@ Thumbs.db
 *.pkl
 !artifacts/codebook/*.pkl
 
+# Large codebook artifacts — upload manually via HF or GitHub UI
+artifacts/spectral_codebook_v4.npz
+
 # Reference images (hosted on HF: https://huggingface.co/datasets/aoxo/reverse-synthid)
 gemini_black/
 gemini_white/
 gemini_random/
 gemini_black_nb_pro/
 gemini_white_nb_pro/
+runs/
 
 # Secrets
 .env
