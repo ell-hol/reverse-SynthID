@@ -19,3 +19,13 @@ matplotlib>=3.4.0
 
 # Utilities
 tqdm>=4.60.0
+
+# Deep learning (VAE re-generation stage)
+torch>=2.0.0
+diffusers>=0.20.0
+safetensors>=0.3.0
+accelerate>=0.20.0
+
+# Gemini API (reference image generation)
+google-genai>=1.0.0
+python-dotenv>=1.0.0
