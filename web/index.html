@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SynthID Bypass — browser demo</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main>
+    <header>
+      <h1>SynthID&nbsp;Bypass <span class="tag">browser demo</span></h1>
+      <p class="sub">
+        A client-side port of the <code>comfy_bypass.py</code> pipeline
+        (itself drawn from the ComfyUI <em>Synthid-Bypass</em> flow).
+        Everything runs in your browser — the image is never uploaded.
+      </p>
+    </header>
+
+    <section class="controls">
+      <label class="file">
+        <input type="file" id="file" accept="image/*" />
+        <span>Choose image</span>
+      </label>
+
+      <div class="sliders">
+        <label>
+          Redraw denoise
+          <input type="range" id="denoise" min="0" max="0.3" step="0.01" value="0.10" />
+          <output id="denoiseOut">0.10</output>
+        </label>
+        <label>
+          Carrier scramble
+          <input type="range" id="spectral" min="0" max="1" step="0.05" value="0.0" />
+          <output id="spectralOut">0.00</output>
+        </label>
+      </div>
+
+      <button id="run" disabled>Process</button>
+      <button id="check" disabled>Check with detector</button>
+      <a id="download" class="download hidden" download="cleaned.png">Download result</a>
+    </section>
+
+    <p id="status" class="status"></p>
+
+    <section class="previews">
+      <figure>
+        <figcaption>Original</figcaption>
+        <canvas id="before"></canvas>
+        <div id="verdictBefore" class="verdict"></div>
+      </figure>
+      <figure>
+        <figcaption>Processed <span id="psnr"></span></figcaption>
+        <canvas id="after"></canvas>
+        <div id="verdictAfter" class="verdict"></div>
+      </figure>
+    </section>
+
+    <footer>
+      <p>
+        <strong>What this does:</strong> edge-preserving structure lock +
+        phase-randomized high-frequency redraw (high fidelity), with an optional
+        targeted carrier-phase scramble at the documented SynthID bins
+        (stronger, lower fidelity on content-rich images).
+      </p>
+      <p class="warn">
+        Research / AI-safety demo only. This targets a <em>reimplementation</em>
+        of the detector, not Google's actual SynthID verifier. A clean result
+        here is not proof an image is watermark-free.
+      </p>
+    </footer>
+  </main>
+
+  <script src="fft.js"></script>
+  <script src="detector.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
